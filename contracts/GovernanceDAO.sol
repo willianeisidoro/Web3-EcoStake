@@ -22,6 +22,11 @@ contract GovernanceDAO {
     }
 
     function createProposal(string memory _description, uint256 duration) external {
+        require(
+            governanceToken.balanceOf(msg.sender) > 0,
+            "Sem token para propor"
+        );
+
         proposals.push(
             Proposal({
                 description: _description,
@@ -33,6 +38,8 @@ contract GovernanceDAO {
     }
 
     function vote(uint256 proposalId) external {
+        require(proposalId < proposals.length, "Proposta invalida");
+
         Proposal storage proposal = proposals[proposalId];
 
         require(block.timestamp < proposal.deadline, "Votacao encerrada");
@@ -46,6 +53,8 @@ contract GovernanceDAO {
     }
 
     function executeProposal(uint256 proposalId) external {
+        require(proposalId < proposals.length, "Proposta invalida");
+
         Proposal storage proposal = proposals[proposalId];
 
         require(block.timestamp >= proposal.deadline, "Votacao ainda ativa");

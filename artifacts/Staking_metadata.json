@@ -307,11 +307,11 @@
 			]
 		},
 		"contracts/Staking.sol": {
-			"keccak256": "0x0644bcf9c2a4363ee20ecd4e4fcfd2d8a074aac11e433e1d0e7188d0b6f38245",
+			"keccak256": "0xa2bfc4637f4c2131a4bc90e2e8bbcde4cb1f9961d5b7f496968479348b6e5f6e",
 			"license": "MIT",
 			"urls": [
-				"bzz-raw://5ace31e8bda667207e2e3fd3e42245d77f51297382920d9c84c4e831e6f34854",
-				"dweb:/ipfs/QmdtJ2rSqPiFigJoUyda8jYVZ2QXbHj7bS6j9S7o9Fc18T"
+				"bzz-raw://e2e1251d05a18ad9269312ccdc05f80d49993cd824a332b83f51c8f0f32a8dd9",
+				"dweb:/ipfs/QmYu4ddspaMpt5X29XXBgomL1enMpn9oJ6WBsABnX2FpRu"
 			]
 		}
 	},

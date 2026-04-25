@@ -11,7 +11,7 @@ contract Staking is Ownable, ReentrancyGuard {
     mapping(address => uint256) public stakedBalance;
     mapping(address => uint256) public stakingTime;
 
-    uint256 public rewardRate = 1; // taxa simples (ajustável)
+    uint256 public rewardRate = 1;
 
     constructor(address _token) Ownable(msg.sender) {
         stakingToken = IERC20(_token);
@@ -20,7 +20,10 @@ contract Staking is Ownable, ReentrancyGuard {
     function stake(uint256 amount) external nonReentrant {
         require(amount > 0, "Valor invalido");
 
-        stakingToken.transferFrom(msg.sender, address(this), amount);
+        require(
+            stakingToken.transferFrom(msg.sender, address(this), amount),
+            "Transfer failed"
+        );
 
         stakedBalance[msg.sender] += amount;
         stakingTime[msg.sender] = block.timestamp;
@@ -35,7 +38,10 @@ contract Staking is Ownable, ReentrancyGuard {
         stakedBalance[msg.sender] = 0;
         stakingTime[msg.sender] = 0;
 
-        stakingToken.transfer(msg.sender, balance + reward);
+        require(
+            stakingToken.transfer(msg.sender, balance + reward),
+            "Transfer failed"
+        );
     }
 
     function calculateReward(address user) public view returns (uint256) {
