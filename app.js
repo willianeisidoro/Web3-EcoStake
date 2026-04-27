@@ -5,20 +5,14 @@ const SEPOLIA_CHAIN_ID = 11155111;
 
 const CONTRACTS = {
     NFT: "0xd9Bb2A48068FD31Fae8Bb1AD7b2481fDbbFdC672",
-    TOKEN: "0x918b71998BE522F491BC390C5De9d45A4c0EC030",
-    STAKING: "0xB55dF5771eE5526e5Cdf5e97Ae7517D0bF42FDAb",
+    TOKEN: "0x809bD846dA448d3B1E8F685C381BB3092baa2abB",
+    STAKING: "0x354C293da5339E1Fa468ba9ad7263fA840cce3A7",
     DAO: "0xaB57FbaFE1e6f8369DC502699aF03400c5b10144"
 };
 
 const PRICE_FEED = "0x694AA1769357215DE4FAC081bf1f309aDC325306";
 
 const MOCK_TOKEN_URI = "ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG/certificate.json";
-
-const MOCK_PROPOSALS = [
-    { id: 0, title: "Plantar 10.000 Árvores", description: "Reflorestamento." },
-    { id: 1, title: "Energia Solar", description: "Painéis em escolas." },
-    { id: 2, title: "Reciclagem", description: "Centros de coleta." }
-];
 
 // ==========================================
 // ABIs
@@ -29,7 +23,8 @@ const NFT_ABI = [
 
 const TOKEN_ABI = [
     "function approve(address spender, uint256 amount) public returns (bool)",
-    "function balanceOf(address account) public view returns (uint256)"
+    "function balanceOf(address account) public view returns (uint256)",
+    "function faucet() external"
 ];
 
 const STAKING_ABI = [
@@ -46,14 +41,10 @@ const DAO_ABI = [
 ];
 
 // ==========================================
-// STATE
-// ==========================================
 let provider, signer, userAddress;
 
 // ==========================================
-// UI HELPERS
-// ==========================================
-function showStatus(id, msg, type = "info") {
+function showStatus(id, msg) {
     document.getElementById(id).innerText = msg;
 }
 
@@ -61,8 +52,6 @@ function clearStatus(id) {
     document.getElementById(id).innerText = "";
 }
 
-// ==========================================
-// CORE
 // ==========================================
 async function connect() {
     if (!window.ethereum) return alert("Instale o MetaMask");
@@ -81,9 +70,9 @@ async function connect() {
     await ensureStakingConfigured();
     enableActions();
     await updateData();
-    renderProposals();
 }
 
+// ==========================================
 async function checkNetwork() {
     const { chainId } = await provider.getNetwork();
     if (chainId !== SEPOLIA_CHAIN_ID) {
@@ -100,8 +89,6 @@ function enableActions() {
 }
 
 // ==========================================
-// CONFIG AUTOMÁTICA DO STAKING
-// ==========================================
 async function ensureStakingConfigured() {
     const staking = new ethers.Contract(CONTRACTS.STAKING, STAKING_ABI, signer);
 
@@ -116,12 +103,10 @@ async function ensureStakingConfigured() {
 
         showStatus("stakeStatus", "✅ Staking configurado!");
     } catch (e) {
-        console.log("Provavelmente você não é owner (ok em produção)");
+        console.log("Você não é owner (normal)");
     }
 }
 
-// ==========================================
-// DATA
 // ==========================================
 async function updateData() {
     const token = new ethers.Contract(CONTRACTS.TOKEN, TOKEN_ABI, provider);
@@ -146,22 +131,42 @@ async function updateData() {
 }
 
 // ==========================================
+// FAUCET
+// ==========================================
+async function getFaucetTokens() {
+    clearStatus("stakeStatus");
+
+    try {
+        const token = new ethers.Contract(CONTRACTS.TOKEN, TOKEN_ABI, signer);
+
+        showStatus("stakeStatus", "Recebendo tokens...");
+
+        const tx = await token.faucet();
+        await tx.wait();
+
+        showStatus("stakeStatus", "✅ Tokens recebidos!");
+
+        await updateData();
+    } catch (e) {
+        showStatus("stakeStatus", "Erro no faucet");
+    }
+}
+
+// ==========================================
 // NFT
 // ==========================================
 async function mintNFT() {
     clearStatus("nftStatus");
 
     try {
-        showStatus("nftStatus", "Mintando NFT...");
-
         const contract = new ethers.Contract(CONTRACTS.NFT, NFT_ABI, signer);
         const tx = await contract.mintCertificate(userAddress, MOCK_TOKEN_URI);
 
         await tx.wait();
 
         showStatus("nftStatus", "✅ NFT criado!");
-    } catch (e) {
-        showStatus("nftStatus", "Erro ao mintar NFT");
+    } catch {
+        showStatus("nftStatus", "Erro no NFT");
     }
 }
 
@@ -184,32 +189,30 @@ async function investTokens() {
         const tx1 = await token.approve(CONTRACTS.STAKING, value);
         await tx1.wait();
 
-        showStatus("stakeStatus", "Fazendo stake...");
+        showStatus("stakeStatus", "Staking...");
         const tx2 = await staking.stake(value);
         await tx2.wait();
 
         showStatus("stakeStatus", "✅ Stake feito!");
-
         await updateData();
-    } catch (e) {
+    } catch {
         showStatus("stakeStatus", "Erro no stake");
     }
 }
 
+// ==========================================
 async function unstakeTokens() {
     clearStatus("stakeStatus");
 
     try {
         const staking = new ethers.Contract(CONTRACTS.STAKING, STAKING_ABI, signer);
 
-        showStatus("stakeStatus", "Retirando...");
         const tx = await staking.unstake();
         await tx.wait();
 
         showStatus("stakeStatus", "✅ Retirado!");
-
         await updateData();
-    } catch (e) {
+    } catch {
         showStatus("stakeStatus", "Erro no unstake");
     }
 }
@@ -221,43 +224,20 @@ async function vote(id) {
     clearStatus("daoStatus");
 
     try {
-        showStatus("daoStatus", "Votando...");
-
         const dao = new ethers.Contract(CONTRACTS.DAO, DAO_ABI, signer);
         const tx = await dao.vote(id);
 
         await tx.wait();
 
         showStatus("daoStatus", "✅ Voto registrado!");
-    } catch (e) {
+    } catch {
         showStatus("daoStatus", "Erro ao votar");
     }
 }
 
 // ==========================================
-// UI DAO
-// ==========================================
-function renderProposals() {
-    const list = document.getElementById("proposalsList");
-    list.innerHTML = "";
-
-    MOCK_PROPOSALS.forEach(p => {
-        const div = document.createElement("div");
-
-        div.innerHTML = `
-            <p><b>${p.title}</b></p>
-            <p>${p.description}</p>
-            <button onclick="vote(${p.id})">Votar</button>
-        `;
-
-        list.appendChild(div);
-    });
-}
-
-// ==========================================
-// EVENTS
-// ==========================================
 document.getElementById("connectButton").onclick = connect;
 document.getElementById("mintButton").onclick = mintNFT;
 document.getElementById("investButton").onclick = investTokens;
 document.getElementById("unstakeButton").onclick = unstakeTokens;
+document.getElementById("faucetButton").onclick = getFaucetTokens;
