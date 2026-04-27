@@ -1,27 +1,8 @@
 // ==========================================
-// Configurações e ABIs
+// CONFIG
 // ==========================================
 const SEPOLIA_CHAIN_ID = 11155111;
 
-const NFT_ABI = [
-    "function mintCertificate(address to, string memory tokenURI) public returns (uint256)"
-];
-const TOKEN_ABI = [
-    "function approve(address spender, uint256 amount) public returns (bool)",
-    "function balanceOf(address account) public view returns (uint256)",
-    "function decimals() public view returns (uint8)"
-];
-const STAKING_ABI = [
-    "function stake(uint256 amount) external",
-    "function unstake() external",
-    "function calculateReward(address user) public view returns (uint256)",
-    "function stakedBalance(address) public view returns (uint256)"
-];
-const DAO_ABI = [
-    "function vote(uint256 proposalId) external"
-];
-
-// ATENÇÃO: Substitua pelos endereços reais dos seus contratos na Sepolia
 const CONTRACTS = {
     NFT: "0xd9Bb2A48068FD31Fae8Bb1AD7b2481fDbbFdC672",
     TOKEN: "0x918b71998BE522F491BC390C5De9d45A4c0EC030",
@@ -29,77 +10,87 @@ const CONTRACTS = {
     DAO: "0xaB57FbaFE1e6f8369DC502699aF03400c5b10144"
 };
 
+const PRICE_FEED = "0x694AA1769357215DE4FAC081bf1f309aDC325306";
+
 const MOCK_TOKEN_URI = "ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG/certificate.json";
 
 const MOCK_PROPOSALS = [
-    { id: 0, title: "Plantar 10.000 Árvores", description: "Reflorestamento em áreas degradadas." },
-    { id: 1, title: "Energia Solar Comunitária", description: "Instalação de painéis em escolas." },
-    { id: 2, title: "Reciclagem Avançada", description: "Novos centros de coleta seletiva." }
+    { id: 0, title: "Plantar 10.000 Árvores", description: "Reflorestamento." },
+    { id: 1, title: "Energia Solar", description: "Painéis em escolas." },
+    { id: 2, title: "Reciclagem", description: "Centros de coleta." }
 ];
 
 // ==========================================
-// Variáveis de Estado
+// ABIs
+// ==========================================
+const NFT_ABI = [
+    "function mintCertificate(address to, string memory tokenURI) public returns (uint256)"
+];
+
+const TOKEN_ABI = [
+    "function approve(address spender, uint256 amount) public returns (bool)",
+    "function balanceOf(address account) public view returns (uint256)"
+];
+
+const STAKING_ABI = [
+    "function stake(uint256 amount) external",
+    "function unstake() external",
+    "function calculateReward(address user) public view returns (uint256)",
+    "function stakedBalance(address) public view returns (uint256)",
+    "function configured() public view returns (bool)",
+    "function setConfig(address,address) external"
+];
+
+const DAO_ABI = [
+    "function vote(uint256 proposalId) external"
+];
+
+// ==========================================
+// STATE
 // ==========================================
 let provider, signer, userAddress;
 
 // ==========================================
-// Funções de UI
+// UI HELPERS
 // ==========================================
-function showStatus(elementId, message, type = 'info', txHash = null) {
-    const container = document.getElementById(elementId);
-    let html = `<div class="status-message status-${type}">`;
-    if (type === 'info') html += `<span class="spinner"></span> `;
-    html += `${message}</div>`;
-    
-    if (txHash) {
-        html += `<a href="https://sepolia.etherscan.io/tx/${txHash}" target="_blank" class="tx-link">🔗 Ver no Etherscan</a>`;
-    }
-    container.innerHTML = html;
+function showStatus(id, msg, type = "info") {
+    document.getElementById(id).innerText = msg;
 }
 
-function clearStatus(elementId) {
-    document.getElementById(elementId).innerHTML = '';
+function clearStatus(id) {
+    document.getElementById(id).innerText = "";
 }
 
 // ==========================================
-// Core Web3
+// CORE
 // ==========================================
+async function connect() {
+    if (!window.ethereum) return alert("Instale o MetaMask");
+
+    await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+    provider = new ethers.providers.Web3Provider(window.ethereum);
+    signer = provider.getSigner();
+    userAddress = await signer.getAddress();
+
+    document.getElementById('walletAddress').innerText =
+        userAddress.slice(0,6) + "..." + userAddress.slice(-4);
+
+    if (!(await checkNetwork())) return;
+
+    await ensureStakingConfigured();
+    enableActions();
+    await updateData();
+    renderProposals();
+}
+
 async function checkNetwork() {
     const { chainId } = await provider.getNetwork();
-    const warning = document.getElementById('networkWarning');
     if (chainId !== SEPOLIA_CHAIN_ID) {
-        warning.classList.remove('hidden');
+        alert("Troque para Sepolia");
         return false;
     }
-    warning.classList.add('hidden');
     return true;
-}
-
-async function connect() {
-    if (!window.ethereum) return alert("Instale o MetaMask!");
-
-    try {
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-        provider = new ethers.providers.Web3Provider(window.ethereum);
-        signer = provider.getSigner();
-        userAddress = await signer.getAddress();
-        
-        document.getElementById('walletAddress').innerText = `${userAddress.substring(0,6)}...${userAddress.substring(38)}`;
-        const connectBtn = document.getElementById('connectButton');
-        connectBtn.innerText = "Carteira Conectada";
-        connectBtn.disabled = true;
-
-        if (await checkNetwork()) {
-            enableActions();
-            await updateData();
-            renderProposals();
-        }
-
-        window.ethereum.on('chainChanged', () => window.location.reload());
-        window.ethereum.on('accountsChanged', () => window.location.reload());
-    } catch (e) {
-        console.error(e);
-    }
 }
 
 function enableActions() {
@@ -108,121 +99,165 @@ function enableActions() {
     document.getElementById('unstakeButton').disabled = false;
 }
 
-async function updateData() {
-    if (!userAddress) return;
+// ==========================================
+// CONFIG AUTOMÁTICA DO STAKING
+// ==========================================
+async function ensureStakingConfigured() {
+    const staking = new ethers.Contract(CONTRACTS.STAKING, STAKING_ABI, signer);
+
     try {
-        const token = new ethers.Contract(CONTRACTS.TOKEN, TOKEN_ABI, provider);
-        const staking = new ethers.Contract(CONTRACTS.STAKING, STAKING_ABI, provider);
+        const configured = await staking.configured();
+        if (configured) return;
 
-        const [balance, staked, reward] = await Promise.all([
-            token.balanceOf(userAddress),
-            staking.stakedBalance(userAddress),
-            staking.calculateReward(userAddress)
-        ]);
+        showStatus("stakeStatus", "Configurando staking...");
 
-        document.getElementById('tokenBalance').innerText = `${ethers.utils.formatEther(balance)} ESG`;
-        document.getElementById('stakedBalance').innerText = `${ethers.utils.formatEther(staked)} ESG`;
-        document.getElementById('estimatedReward').innerText = `${ethers.utils.formatEther(reward)} ESG`;
+        const tx = await staking.setConfig(CONTRACTS.TOKEN, PRICE_FEED);
+        await tx.wait();
+
+        showStatus("stakeStatus", "✅ Staking configurado!");
     } catch (e) {
-        console.error("Erro ao atualizar dados:", e);
+        console.log("Provavelmente você não é owner (ok em produção)");
     }
 }
 
 // ==========================================
-// Ações On-Chain
+// DATA
 // ==========================================
+async function updateData() {
+    const token = new ethers.Contract(CONTRACTS.TOKEN, TOKEN_ABI, provider);
+    const staking = new ethers.Contract(CONTRACTS.STAKING, STAKING_ABI, provider);
 
-async function mintNFT() {
-    clearStatus('nftStatus');
     try {
-        showStatus('nftStatus', 'Preparando emissão...', 'info');
+        const balance = await token.balanceOf(userAddress);
+        const staked = await staking.stakedBalance(userAddress);
+        const reward = await staking.calculateReward(userAddress);
+
+        document.getElementById("tokenBalance").innerText =
+            ethers.utils.formatEther(balance);
+
+        document.getElementById("stakedBalance").innerText =
+            ethers.utils.formatEther(staked);
+
+        document.getElementById("estimatedReward").innerText =
+            ethers.utils.formatEther(reward);
+    } catch (e) {
+        console.log("Erro ao atualizar dados");
+    }
+}
+
+// ==========================================
+// NFT
+// ==========================================
+async function mintNFT() {
+    clearStatus("nftStatus");
+
+    try {
+        showStatus("nftStatus", "Mintando NFT...");
+
         const contract = new ethers.Contract(CONTRACTS.NFT, NFT_ABI, signer);
         const tx = await contract.mintCertificate(userAddress, MOCK_TOKEN_URI);
-        showStatus('nftStatus', 'Transação enviada!', 'info', tx.hash);
+
         await tx.wait();
-        showStatus('nftStatus', '✅ Certificado emitido com sucesso!', 'success', tx.hash);
+
+        showStatus("nftStatus", "✅ NFT criado!");
     } catch (e) {
-        showStatus('nftStatus', '❌ Erro ao emitir certificado.', 'error');
+        showStatus("nftStatus", "Erro ao mintar NFT");
     }
 }
 
+// ==========================================
+// STAKE
+// ==========================================
 async function investTokens() {
-    const amount = document.getElementById('stakeAmount').value;
-    if (!amount || amount <= 0) return;
-    
-    clearStatus('stakeStatus');
-    const amountWei = ethers.utils.parseEther(amount);
+    const amount = document.getElementById("stakeAmount").value;
+    if (!amount) return;
+
+    clearStatus("stakeStatus");
 
     try {
         const token = new ethers.Contract(CONTRACTS.TOKEN, TOKEN_ABI, signer);
         const staking = new ethers.Contract(CONTRACTS.STAKING, STAKING_ABI, signer);
 
-        showStatus('stakeStatus', 'Passo 1/2: Autorizando investimento...', 'info');
-        const txApprove = await token.approve(CONTRACTS.STAKING, amountWei);
-        await txApprove.wait();
+        const value = ethers.utils.parseEther(amount);
 
-        showStatus('stakeStatus', 'Passo 2/2: Confirmando investimento...', 'info', txApprove.hash);
-        const txStake = await staking.stake(amountWei);
-        showStatus('stakeStatus', 'Finalizando investimento...', 'info', txStake.hash);
-        await txStake.wait();
+        showStatus("stakeStatus", "Aprovando...");
+        const tx1 = await token.approve(CONTRACTS.STAKING, value);
+        await tx1.wait();
 
-        showStatus('stakeStatus', '✅ Investimento concluído!', 'success', txStake.hash);
+        showStatus("stakeStatus", "Fazendo stake...");
+        const tx2 = await staking.stake(value);
+        await tx2.wait();
+
+        showStatus("stakeStatus", "✅ Stake feito!");
+
         await updateData();
     } catch (e) {
-        showStatus('stakeStatus', '❌ Erro no processo de investimento.', 'error');
+        showStatus("stakeStatus", "Erro no stake");
     }
 }
 
 async function unstakeTokens() {
-    clearStatus('stakeStatus');
+    clearStatus("stakeStatus");
+
     try {
-        showStatus('stakeStatus', 'Preparando resgate...', 'info');
         const staking = new ethers.Contract(CONTRACTS.STAKING, STAKING_ABI, signer);
+
+        showStatus("stakeStatus", "Retirando...");
         const tx = await staking.unstake();
-        showStatus('stakeStatus', 'Resgatando fundos...', 'info', tx.hash);
         await tx.wait();
-        showStatus('stakeStatus', '✅ Resgate concluído com sucesso!', 'success', tx.hash);
+
+        showStatus("stakeStatus", "✅ Retirado!");
+
         await updateData();
     } catch (e) {
-        showStatus('stakeStatus', '❌ Erro ao resgatar fundos.', 'error');
+        showStatus("stakeStatus", "Erro no unstake");
     }
 }
 
+// ==========================================
+// DAO
+// ==========================================
 async function vote(id) {
-    clearStatus('daoStatus');
+    clearStatus("daoStatus");
+
     try {
-        showStatus('daoStatus', `Enviando voto para proposta #${id}...`, 'info');
+        showStatus("daoStatus", "Votando...");
+
         const dao = new ethers.Contract(CONTRACTS.DAO, DAO_ABI, signer);
         const tx = await dao.vote(id);
-        showStatus('daoStatus', 'Voto em processamento...', 'info', tx.hash);
+
         await tx.wait();
-        showStatus('daoStatus', '✅ Voto computado!', 'success', tx.hash);
+
+        showStatus("daoStatus", "✅ Voto registrado!");
     } catch (e) {
-        showStatus('daoStatus', '❌ Erro ao votar. Verifique se você já votou.', 'error');
+        showStatus("daoStatus", "Erro ao votar");
     }
 }
 
 // ==========================================
-// Inicialização
+// UI DAO
 // ==========================================
 function renderProposals() {
-    const list = document.getElementById('proposalsList');
-    list.innerHTML = '';
+    const list = document.getElementById("proposalsList");
+    list.innerHTML = "";
+
     MOCK_PROPOSALS.forEach(p => {
-        const div = document.createElement('div');
-        div.className = 'proposal-card';
+        const div = document.createElement("div");
+
         div.innerHTML = `
-            <div class="proposal-info">
-                <h4>#${p.id} - ${p.title}</h4>
-                <p>${p.description}</p>
-            </div>
-            <button class="btn-secondary" onclick="vote(${p.id})">Votar</button>
+            <p><b>${p.title}</b></p>
+            <p>${p.description}</p>
+            <button onclick="vote(${p.id})">Votar</button>
         `;
+
         list.appendChild(div);
     });
 }
 
-document.getElementById('connectButton').addEventListener('click', connect);
-document.getElementById('mintButton').addEventListener('click', mintNFT);
-document.getElementById('investButton').addEventListener('click', investTokens);
-document.getElementById('unstakeButton').addEventListener('click', unstakeTokens);
+// ==========================================
+// EVENTS
+// ==========================================
+document.getElementById("connectButton").onclick = connect;
+document.getElementById("mintButton").onclick = mintNFT;
+document.getElementById("investButton").onclick = investTokens;
+document.getElementById("unstakeButton").onclick = unstakeTokens;

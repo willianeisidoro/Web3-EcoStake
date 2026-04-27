@@ -1,15 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract ESGToken is ERC20, ERC20Permit {
+contract ESGToken is ERC20, Ownable {
 
-    constructor()
-        ERC20("ESGToken", "ESG")
-        ERC20Permit("ESGToken")
-    {
-        _mint(msg.sender, 1000000 * 10 ** decimals());
+    uint256 public faucetAmount = 100 * 10 ** 18;
+
+    mapping(address => bool) public hasClaimed;
+
+    constructor() ERC20("ESGToken", "ESG") Ownable(msg.sender) {}
+
+    function claimFaucet() external {
+        require(!hasClaimed[msg.sender], "Ja recebeu tokens");
+
+        hasClaimed[msg.sender] = true;
+        _mint(msg.sender, faucetAmount);
+    }
+
+    function setFaucetAmount(uint256 amount) external onlyOwner {
+        faucetAmount = amount;
     }
 }

@@ -14,26 +14,28 @@ contract Staking is Ownable, ReentrancyGuard {
     mapping(address => uint256) public stakingTime;
 
     uint256 public rewardRate = 1;
+    bool public configured;
 
     constructor() Ownable(msg.sender) {}
 
-    // 🔧 Configuração pós-deploy (igual ao DAO)
     function setConfig(address _token, address _priceFeed) external onlyOwner {
-        require(address(stakingToken) == address(0), "Ja configurado");
+        require(!configured, "Ja configurado");
         require(_token != address(0), "Token invalido");
         require(_priceFeed != address(0), "PriceFeed invalido");
 
         stakingToken = IERC20(_token);
         priceFeed = AggregatorV3Interface(_priceFeed);
+        configured = true;
     }
 
     function getLatestPrice() public view returns (int256) {
+        require(configured, "Nao configurado");
         (, int256 price,,,) = priceFeed.latestRoundData();
         return price;
     }
 
     function stake(uint256 amount) external nonReentrant {
-        require(address(stakingToken) != address(0), "Nao configurado");
+        require(configured, "Nao configurado");
         require(amount > 0, "Valor invalido");
 
         require(
@@ -46,6 +48,8 @@ contract Staking is Ownable, ReentrancyGuard {
     }
 
     function unstake() external nonReentrant {
+        require(configured, "Nao configurado");
+
         uint256 balance = stakedBalance[msg.sender];
         require(balance > 0, "Nada para retirar");
 
@@ -61,6 +65,8 @@ contract Staking is Ownable, ReentrancyGuard {
     }
 
     function calculateReward(address user) public view returns (uint256) {
+        if (!configured || stakingTime[user] == 0) return 0;
+
         uint256 timeStaked = block.timestamp - stakingTime[user];
         int256 ethPrice = getLatestPrice();
 
