@@ -14,6 +14,12 @@ const PRICE_FEED = "0x694AA1769357215DE4FAC081bf1f309aDC325306";
 
 const MOCK_TOKEN_URI = "ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG/certificate.json";
 
+const MOCK_PROPOSALS = [
+    { id: 1, title: "Reflorestamento Urbano", desc: "Plantio de 1000 árvores nativas em áreas degradadas." },
+    { id: 2, title: "Energia Solar Comunitária", desc: "Instalação de painéis solares em centros locais." },
+    { id: 3, title: "Reciclagem de E-waste", desc: "Programa de coleta de resíduos eletrônicos." }
+];
+
 // ==========================================
 // ABIs
 // ==========================================
@@ -44,8 +50,9 @@ const DAO_ABI = [
 let provider, signer, userAddress;
 
 // ==========================================
-function showStatus(id, msg) {
-    document.getElementById(id).innerText = msg;
+function showStatus(id, msg, type = 'info') {
+    const el = document.getElementById(id);
+    el.innerHTML = `<div class="status-message status-${type}">${msg}</div>`;
 }
 
 function clearStatus(id) {
@@ -56,27 +63,33 @@ function clearStatus(id) {
 async function connect() {
     if (!window.ethereum) return alert("Instale o MetaMask");
 
-    await window.ethereum.request({ method: 'eth_requestAccounts' });
+    try {
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
 
-    provider = new ethers.providers.Web3Provider(window.ethereum);
-    signer = provider.getSigner();
-    userAddress = await signer.getAddress();
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        signer = provider.getSigner();
+        userAddress = await signer.getAddress();
 
-    document.getElementById('walletAddress').innerText =
-        userAddress.slice(0,6) + "..." + userAddress.slice(-4);
+        document.getElementById('walletAddress').innerText =
+            userAddress.slice(0,6) + "..." + userAddress.slice(-4);
 
-    if (!(await checkNetwork())) return;
+        if (!(await checkNetwork())) return;
 
-    await ensureStakingConfigured();
-    enableActions();
-    await updateData();
+        await ensureStakingConfigured();
+        enableActions();
+        await updateData();
+        loadProposals();
+    } catch (e) {
+        console.error(e);
+        alert("Erro ao conectar carteira");
+    }
 }
 
 // ==========================================
 async function checkNetwork() {
     const { chainId } = await provider.getNetwork();
     if (chainId !== SEPOLIA_CHAIN_ID) {
-        alert("Troque para Sepolia");
+        alert("Troque para a rede Sepolia");
         return false;
     }
     return true;
@@ -98,12 +111,12 @@ async function ensureStakingConfigured() {
 
         showStatus("stakeStatus", "Configurando staking...");
 
-        const tx = await staking.setConfig(CONTRACTS.TOKEN, PRICE_FEED);
+        const tx = await staking.setConfig(CONTRACTS.TOKEN, PRICE_FEED, { gasLimit: 200000 });
         await tx.wait();
 
-        showStatus("stakeStatus", "✅ Staking configurado!");
+        showStatus("stakeStatus", "✅ Staking configurado!", "success");
     } catch (e) {
-        console.log("Você não é owner (normal)");
+        console.log("Configuração de owner não necessária ou já feita");
     }
 }
 
@@ -118,15 +131,15 @@ async function updateData() {
         const reward = await staking.calculateReward(userAddress);
 
         document.getElementById("tokenBalance").innerText =
-            ethers.utils.formatEther(balance);
+            ethers.utils.formatEther(balance) + " ESG";
 
         document.getElementById("stakedBalance").innerText =
-            ethers.utils.formatEther(staked);
+            ethers.utils.formatEther(staked) + " ESG";
 
         document.getElementById("estimatedReward").innerText =
-            ethers.utils.formatEther(reward);
+            ethers.utils.formatEther(reward) + " ESG";
     } catch (e) {
-        console.log("Erro ao atualizar dados");
+        console.error("Erro ao atualizar dados:", e);
     }
 }
 
@@ -139,16 +152,16 @@ async function getFaucetTokens() {
     try {
         const token = new ethers.Contract(CONTRACTS.TOKEN, TOKEN_ABI, signer);
 
-        showStatus("stakeStatus", "Recebendo tokens...");
+        showStatus("stakeStatus", "Solicitando tokens ESG...");
 
-        const tx = await token.faucet();
+        const tx = await token.faucet({ gasLimit: 100000 });
         await tx.wait();
 
-        showStatus("stakeStatus", "✅ Tokens recebidos!");
+        showStatus("stakeStatus", "✅ Tokens recebidos!", "success");
 
         await updateData();
     } catch (e) {
-        showStatus("stakeStatus", "Erro no faucet");
+        showStatus("stakeStatus", "Erro no faucet: " + (e.reason || e.message), "error");
     }
 }
 
@@ -160,13 +173,15 @@ async function mintNFT() {
 
     try {
         const contract = new ethers.Contract(CONTRACTS.NFT, NFT_ABI, signer);
-        const tx = await contract.mintCertificate(userAddress, MOCK_TOKEN_URI);
+        showStatus("nftStatus", "Emitindo certificado...");
+        
+        const tx = await contract.mintCertificate(userAddress, MOCK_TOKEN_URI, { gasLimit: 300000 });
 
         await tx.wait();
 
-        showStatus("nftStatus", "✅ NFT criado!");
-    } catch {
-        showStatus("nftStatus", "Erro no NFT");
+        showStatus("nftStatus", "✅ Certificado NFT criado!", "success");
+    } catch (e) {
+        showStatus("nftStatus", "Erro ao emitir NFT: " + (e.reason || e.message), "error");
     }
 }
 
@@ -175,7 +190,7 @@ async function mintNFT() {
 // ==========================================
 async function investTokens() {
     const amount = document.getElementById("stakeAmount").value;
-    if (!amount) return;
+    if (!amount || amount <= 0) return alert("Digite um valor válido");
 
     clearStatus("stakeStatus");
 
@@ -185,18 +200,18 @@ async function investTokens() {
 
         const value = ethers.utils.parseEther(amount);
 
-        showStatus("stakeStatus", "Aprovando...");
-        const tx1 = await token.approve(CONTRACTS.STAKING, value);
+        showStatus("stakeStatus", "Passo 1/2: Aprovando contrato...");
+        const tx1 = await token.approve(CONTRACTS.STAKING, value, { gasLimit: 100000 });
         await tx1.wait();
 
-        showStatus("stakeStatus", "Staking...");
-        const tx2 = await staking.stake(value);
+        showStatus("stakeStatus", "Passo 2/2: Confirmando investimento...");
+        const tx2 = await staking.stake(value, { gasLimit: 400000 });
         await tx2.wait();
 
-        showStatus("stakeStatus", "✅ Stake feito!");
+        showStatus("stakeStatus", "✅ Investimento realizado com sucesso!", "success");
         await updateData();
-    } catch {
-        showStatus("stakeStatus", "Erro no stake");
+    } catch (e) {
+        showStatus("stakeStatus", "Erro no investimento: " + (e.reason || e.message), "error");
     }
 }
 
@@ -207,37 +222,65 @@ async function unstakeTokens() {
     try {
         const staking = new ethers.Contract(CONTRACTS.STAKING, STAKING_ABI, signer);
 
-        const tx = await staking.unstake();
+        showStatus("stakeStatus", "Processando resgate...");
+        
+        // Unstake costuma falhar se não tiver gás suficiente para o cálculo de rewards
+        const tx = await staking.unstake({ gasLimit: 500000 });
         await tx.wait();
 
-        showStatus("stakeStatus", "✅ Retirado!");
+        showStatus("stakeStatus", "✅ Resgate concluído!", "success");
         await updateData();
-    } catch {
-        showStatus("stakeStatus", "Erro no unstake");
+    } catch (e) {
+        showStatus("stakeStatus", "Erro ao resgatar: " + (e.reason || e.message), "error");
     }
 }
 
 // ==========================================
 // DAO
 // ==========================================
+function loadProposals() {
+    const list = document.getElementById("proposalsList");
+    list.innerHTML = "";
+
+    MOCK_PROPOSALS.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "proposal-card";
+        div.innerHTML = `
+            <div class="proposal-info">
+                <h4>${p.title}</h4>
+                <p>${p.desc}</p>
+            </div>
+            <button onclick="vote(${p.id})" class="btn-primary">Votar</button>
+        `;
+        list.appendChild(div);
+    });
+}
+
 async function vote(id) {
     clearStatus("daoStatus");
 
     try {
         const dao = new ethers.Contract(CONTRACTS.DAO, DAO_ABI, signer);
-        const tx = await dao.vote(id);
+        showStatus("daoStatus", "Enviando voto...");
+        
+        const tx = await dao.vote(id, { gasLimit: 150000 });
 
         await tx.wait();
 
-        showStatus("daoStatus", "✅ Voto registrado!");
-    } catch {
-        showStatus("daoStatus", "Erro ao votar");
+        showStatus("daoStatus", "✅ Voto registrado!", "success");
+    } catch (e) {
+        showStatus("daoStatus", "Erro ao votar: " + (e.reason || e.message), "error");
     }
 }
 
+// ==========================================
+// EVENTOS
 // ==========================================
 document.getElementById("connectButton").onclick = connect;
 document.getElementById("mintButton").onclick = mintNFT;
 document.getElementById("investButton").onclick = investTokens;
 document.getElementById("unstakeButton").onclick = unstakeTokens;
 document.getElementById("faucetButton").onclick = getFaucetTokens;
+
+// Expor função vote para o escopo global devido ao uso em onclick no innerHTML
+window.vote = vote;
