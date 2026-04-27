@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/willianeisidoro/Web3-EcoStake#readme",
   "dependencies": {
+    "@chainlink/contracts": "^1.5.0",
     "@openzeppelin/contracts": "^5.6.1"
   }
 }
