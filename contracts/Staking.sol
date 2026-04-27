@@ -8,30 +8,32 @@ import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.so
 
 contract Staking is Ownable, ReentrancyGuard {
     IERC20 public stakingToken;
-    AggregatorV3Interface internal priceFeed;
+    AggregatorV3Interface public priceFeed;
 
     mapping(address => uint256) public stakedBalance;
     mapping(address => uint256) public stakingTime;
 
     uint256 public rewardRate = 1;
 
-    constructor(address _token, address _priceFeed) Ownable(msg.sender) {
+    constructor() Ownable(msg.sender) {}
+
+    // 🔧 Configuração pós-deploy (igual ao DAO)
+    function setConfig(address _token, address _priceFeed) external onlyOwner {
+        require(address(stakingToken) == address(0), "Ja configurado");
+        require(_token != address(0), "Token invalido");
+        require(_priceFeed != address(0), "PriceFeed invalido");
+
         stakingToken = IERC20(_token);
         priceFeed = AggregatorV3Interface(_priceFeed);
     }
 
     function getLatestPrice() public view returns (int256) {
-        (
-            /* uint80 roundID */,
-            int256 price,
-            /* uint startedAt */,
-            /* uint timeStamp */,
-            /* uint80 answeredInRound */
-        ) = priceFeed.latestRoundData();
+        (, int256 price,,,) = priceFeed.latestRoundData();
         return price;
     }
 
     function stake(uint256 amount) external nonReentrant {
+        require(address(stakingToken) != address(0), "Nao configurado");
         require(amount > 0, "Valor invalido");
 
         require(
@@ -61,10 +63,8 @@ contract Staking is Ownable, ReentrancyGuard {
     function calculateReward(address user) public view returns (uint256) {
         uint256 timeStaked = block.timestamp - stakingTime[user];
         int256 ethPrice = getLatestPrice();
-        
-        // Exemplo: se o preço do ETH for alto, a recompensa é maior
-        // ethPrice geralmente tem 8 casas decimais
-        uint256 priceMultiplier = uint256(ethPrice) / 1e8; 
+
+        uint256 priceMultiplier = uint256(ethPrice) / 1e8;
         if (priceMultiplier == 0) priceMultiplier = 1;
 
         return (stakedBalance[user] * timeStaked * rewardRate * priceMultiplier) / 1e18;

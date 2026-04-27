@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract GovernanceDAO {
     IERC20 public governanceToken;
+    address public owner;
 
     struct Proposal {
         string description;
@@ -17,11 +18,24 @@ contract GovernanceDAO {
 
     mapping(uint256 => mapping(address => bool)) public hasVoted;
 
-    constructor(address _token) {
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Apenas o owner pode executar");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    // 🔧 Define o token depois do deploy (resolve seu erro)
+    function setToken(address _token) external onlyOwner {
+        require(address(governanceToken) == address(0), "Token ja definido");
+        require(_token != address(0), "Endereco invalido");
         governanceToken = IERC20(_token);
     }
 
     function createProposal(string memory _description, uint256 duration) external {
+        require(address(governanceToken) != address(0), "Token nao configurado");
         require(
             governanceToken.balanceOf(msg.sender) > 0,
             "Sem token para propor"
@@ -38,6 +52,7 @@ contract GovernanceDAO {
     }
 
     function vote(uint256 proposalId) external {
+        require(address(governanceToken) != address(0), "Token nao configurado");
         require(proposalId < proposals.length, "Proposta invalida");
 
         Proposal storage proposal = proposals[proposalId];
@@ -65,5 +80,19 @@ contract GovernanceDAO {
 
     function getProposalsCount() external view returns (uint256) {
         return proposals.length;
+    }
+
+    function getProposal(uint256 proposalId)
+        external
+        view
+        returns (
+            string memory description,
+            uint256 voteCount,
+            uint256 deadline,
+            bool executed
+        )
+    {
+        Proposal storage p = proposals[proposalId];
+        return (p.description, p.voteCount, p.deadline, p.executed);
     }
 }
